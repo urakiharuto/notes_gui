@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>研究室ノート</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.7 system-ui, sans-serif; max-width: 26rem; margin: 18vh auto 0; padding: 0 20px; }
+  [hidden] { display: none !important; }
+  h1 { font-size: 20px; margin: 0 0 18px; }
+  label { display: block; font-weight: 600; margin: 16px 0 4px; }
+  input { box-sizing: border-box; width: 100%; font: inherit; padding: 9px 10px; border: 1px solid #c8ccd4; border-radius: 6px; }
+  button { margin-top: 20px; font: inherit; padding: 9px 18px; border-radius: 6px; border: 0; background: #2f5bd3; color: #fff; }
+  .note { font-size: 13px; color: #667; margin: 4px 0 0; }
+  #status { color: #667; }
+  #err { color: #b42318; }
+</style>
+</head>
+<body>
+<!--
+  入口。ここ（index.html と sw.js）だけを公開する場所に置く。画面の中身とノートは、非公開のリポジトリから
+  トークンで取る（sw.js）。この2つのファイルには、研究室のことは何も書かない。
+  開くときに ?ref=枝の名前 を付けると、その枝の画面を使う（試すとき）。
+-->
+<p id="status">開いています…</p>
+<form id="setup" hidden>
+  <h1>研究室ノート</h1>
+  <label for="token">GitHub のトークン</label>
+  <input id="token" type="password" autocomplete="off" required>
+  <label for="repo">研究室のリポジトリ</label>
+  <input id="repo" placeholder="持ち主/名前" required>
+  <p class="note">トークンはこの端末にだけ残ります。</p>
+  <button>開く</button>
+  <p id="err"></p>
+</form>
+<script>
+(async () => {
+  const KEY = { token: 'lab.token', repo: 'lab.repo', api: 'lab.api', ref: 'lab.appref' };
+  const get = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+  const set = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+  const $ = s => document.querySelector(s);
+  const q = new URLSearchParams(location.search);
+  if (q.has('ref')) set(KEY.ref, q.get('ref'));
+  set('lab.loader', '1');                              // 開いた画面に、入口から開いたことを知らせる（画面が自分の裏方を入れない）
+
+  const setup = why => {
+    $('#status').hidden = true;
+    $('#setup').hidden = false;
+    $('#repo').value = get(KEY.repo);
+    $('#err').textContent = why || '';
+    $('#setup').onsubmit = e => {
+      e.preventDefault();
+      set(KEY.token, $('#token').value.trim());
+      set(KEY.repo, $('#repo').value.trim().replace(/^https:\/\/github\.com\//, '').replace(/\.git$|\/$/g, ''));
+      location.reload();
+    };
+  };
+  if (!('serviceWorker' in navigator)) return setup('このブラウザでは使えません（Service Worker が無い）');
+  const token = get(KEY.token), repo = get(KEY.repo);
+  if (!token || !repo.includes('/')) return setup();
+
+  await navigator.serviceWorker.register('sw.js', { scope: './' });
+  const reg = await navigator.serviceWorker.ready;
+  const app = new URL('src/app/web/', location.href).href;
+  const have = (await fetch(app, { cache: 'no-store' }).catch(() => null))?.ok;
+  if (have) return location.replace(app);              // 残してあれば、すぐ開く（新しい版は、開いた画面が裏で取る）
+
+  const ch = new MessageChannel();
+  ch.port1.onmessage = e => {
+    const m = e.data;
+    if (m.t === 'progress') $('#status').textContent = '画面を取っています… ' + m.msg;
+    else if (m.t === 'done') location.replace(app);
+    else if (m.t === 'error') {
+      if (m.status === 401) setup('トークンが使えません（期限切れか、取り消されています）');
+      else if (m.status === 404) setup(`${repo} が見つかりません（名前か、トークンの権限を確かめてください）`);
+      else setup('画面を取れませんでした: ' + m.message);
+    }
+  };
+  reg.active.postMessage({ t: 'update', token, repo, ref: get(KEY.ref), api: get(KEY.api) }, [ch.port2]);
+})();
+</script>
+</body>
+</html>
