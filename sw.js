@@ -7,6 +7,7 @@
 
 const CACHE = 'lab-loader-v1';
 const LIST = '__files.json';                    // 残してあるファイルの一覧（パス → GitHub の blob の sha）
+const VERSION = '__version.json';               // 端末にある画面の版（枝・木の sha・取った時刻）
 const WANT = ['app/web/', 'app/core/', 'app/vendor/', 'labkb/ui/'];
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -84,5 +85,10 @@ async function run(m, progress) {
   }
   for (const p of Object.keys(old)) if (!(p in now)) await cache.delete(SRC + p);
   await cache.put(SRC + LIST, new Response(JSON.stringify(now), { headers: { 'Content-Type': 'application/json' } }));
+  // いま端末にある画面の版（設定に出す。更新が届いたかを確かめるため）
+  if (todo.length || !(await cache.match(SRC + VERSION))) {
+    const v = { ref, tree: String(tree.sha || '').slice(0, 7), at: new Date().toISOString() };
+    await cache.put(SRC + VERSION, new Response(JSON.stringify(v), { headers: { 'Content-Type': 'application/json' } }));
+  }
   return todo.length;
 }
