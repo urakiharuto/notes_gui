@@ -5,7 +5,7 @@
 // - 取ったものは版ごとに比べ、変わったファイルだけ取り直す。新しい画面は、次に開いたときから使われる
 // - 電波が無ければ、残してあるもので開く
 
-const CACHE = 'lab-loader-v1';
+const CACHE = 'lab-loader-v2';
 const LIST = '__files.json';                    // 残してあるファイルの一覧（パス → GitHub の blob の sha）
 const VERSION = '__version.json';               // 端末にある画面の版（枝・木の sha・取った時刻）
 const WANT = ['app/web/', 'app/core/', 'app/vendor/', 'labkb/ui/'];
@@ -17,7 +17,13 @@ const TYPES = {
 const SRC = new URL('./src/', self.registration.scope).pathname;
 
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', e => e.waitUntil((async () => {
+  // 更新を頼む処理が無い旧画面も取り直せるようにする。設定（localStorage）は残す。
+  for (const name of await caches.keys()) {
+    if (name.startsWith('lab-loader-') && name !== CACHE) await caches.delete(name);
+  }
+  await self.clients.claim();
+})()));
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
