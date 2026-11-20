@@ -24,7 +24,8 @@
   トークンで取る（sw.js）。この2つのファイルには、研究室のことは何も書かない。
   開くときに ?ref=枝の名前 を付けると、その枝の画面を使う（試すとき）。
 -->
-<p id="status">開いています…</p>
+<p id="status" role="status">開いています…</p>
+<button id="reload" type="button" hidden>再読み込み</button>
 <form id="setup" hidden>
   <h1>研究室ノート</h1>
   <label for="token">GitHub のトークン</label>
@@ -78,11 +79,29 @@
   if (have) return location.replace(app);              // 残してあれば、すぐ開く（新しい版は、開いた画面が裏で取る）
 
   const ch = new MessageChannel();
+  const stopWaiting = () => {
+    clearTimeout(timeout);
+    ch.port1.close();
+  };
+  const waitForUpdate = () => setTimeout(() => {
+    stopWaiting();
+    $('#status').textContent = '画面を取れませんでした。再読み込みしてください。';
+    $('#reload').hidden = false;
+  }, 30_000);
+  $('#reload').onclick = () => location.reload();
+
+  let timeout = waitForUpdate();
   ch.port1.onmessage = e => {
     const m = e.data;
-    if (m.t === 'progress') $('#status').textContent = '画面を取っています… ' + m.msg;
-    else if (m.t === 'done') location.replace(app);
-    else if (m.t === 'error') {
+    if (m.t === 'progress') {
+      clearTimeout(timeout);
+      timeout = waitForUpdate();
+      $('#status').textContent = '画面を取っています… ' + m.msg;
+    } else if (m.t === 'done') {
+      stopWaiting();
+      location.replace(app);
+    } else if (m.t === 'error') {
+      stopWaiting();
       if (m.status === 401) setup('トークンが使えません（期限切れか、取り消されています）');
       else if (m.status === 404) setup(`${repo} が見つかりません（名前か、トークンの権限を確かめてください）`);
       else setup('画面を取れませんでした: ' + m.message);
