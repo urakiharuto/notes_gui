@@ -5,7 +5,7 @@
 // - 取ったものは版ごとに比べ、変わったファイルだけ取り直す。新しい画面は、次に開いたときから使われる
 // - 電波が無ければ、残してあるもので開く
 
-const CACHE = 'lab-loader-v2';
+const CACHE = 'lab-loader-v3';
 const LIST = '__files.json';                    // 残してあるファイルの一覧（パス → GitHub の blob の sha）
 const VERSION = '__version.json';               // 端末にある画面の版（枝・木の sha・取った時刻）
 const WANT = ['app/web/', 'app/core/', 'app/vendor/', 'labkb/ui/'];
@@ -32,7 +32,9 @@ self.addEventListener('fetch', e => {
     let rel = decodeURIComponent(url.pathname.slice(SRC.length));
     if (rel === '' || rel.endsWith('/')) rel += 'index.html';
     const hit = await (await caches.open(CACHE)).match(SRC + rel);
-    return hit || new Response('この端末にまだありません: ' + rel, { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    if (hit) return hit;
+    if (e.request.mode === 'navigate') return Response.redirect(self.registration.scope, 302);
+    return new Response('この端末にまだありません: ' + rel, { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   })());
 });
 
