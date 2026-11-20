@@ -90,6 +90,7 @@
   }, 30_000);
   $('#reload').onclick = () => location.reload();
 
+  const ref = get(KEY.ref), api = get(KEY.api);
   let timeout = waitForUpdate();
   ch.port1.onmessage = e => {
     const m = e.data;
@@ -99,6 +100,7 @@
       $('#status').textContent = '画面を取っています… ' + m.msg;
     } else if (m.t === 'done') {
       stopWaiting();
+      if (m.resetRef && get(KEY.ref) === ref && get(KEY.repo) === repo && get(KEY.api) === api) set(KEY.ref, '');
       location.replace(app);
     } else if (m.t === 'error') {
       stopWaiting();
@@ -107,7 +109,7 @@
       else setup('画面を取れませんでした: ' + m.message);
     }
   };
-  reg.active.postMessage({ t: 'update', token, repo, ref: get(KEY.ref), api: get(KEY.api) }, [ch.port2]);
+  reg.active.postMessage({ t: 'update', token, repo, ref, api }, [ch.port2]);
 })();
 </script>
 </body>
