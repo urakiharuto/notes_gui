@@ -44,7 +44,7 @@ self.addEventListener('message', e => {
   const port = e.ports[0];
   const say = (/** @type {any} */ x) => { if (port) port.postMessage(x); };
   e.waitUntil(update(m, msg => say({ t: 'progress', msg }))
-    .then(changed => say({ t: 'done', changed }))
+    .then(result => say({ t: 'done', ...result }))
     .catch(err => say({ t: 'error', status: err.status || 0, message: String(err.message || err) })));
 });
 
@@ -52,8 +52,15 @@ let running = null;
 
 /** @param {{token: string, repo: string, ref?: string, api?: string}} m @param {(msg: string) => void} progress */
 function update(m, progress) {
-  if (!running) running = run(m, progress).finally(() => { running = null; });
-  return running;
+  if (running) {
+    const active = running;
+    if (active.source.repo === m.repo && active.source.ref === m.ref &&
+        active.source.api === m.api && active.source.token === m.token) return active.result;
+    return active.result.catch(() => {}).then(() => update(m, progress));
+  }
+  const result = run(m, progress).finally(() => { running = null; });
+  running = { source: m, result };
+  return result;
 }
 
 /** @param {{token: string, repo: string, ref?: string, api?: string}} m @param {(msg: string) => void} progress */
@@ -69,8 +76,20 @@ async function run(m, progress) {
     }
     return res.json();
   };
-  const ref = m.ref || (await get(`/repos/${m.repo}`)).default_branch;
-  const tree = await get(`/repos/${m.repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+  const defaultRef = async () => (await get(`/repos/${m.repo}`)).default_branch;
+  const getTree = (/** @type {string} */ ref) => get(`/repos/${m.repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+  let ref = m.ref || await defaultRef();
+  let resetRef = false;
+  let tree;
+  try {
+    tree = await getTree(ref);
+  } catch (err) {
+    if (!m.ref || err.status !== 404) throw err;
+    ref = await defaultRef();
+    if (ref === m.ref) throw err;
+    tree = await getTree(ref);
+    resetRef = true;
+  }
   if (tree.truncated) throw new Error('リポジトリが大きすぎて、ファイルの一覧を1回で取れません');
   const cache = await caches.open(CACHE);
   const oldRes = await cache.match(SRC + LIST);
@@ -94,9 +113,11 @@ async function run(m, progress) {
   for (const p of Object.keys(old)) if (!(p in now)) await cache.delete(SRC + p);
   await cache.put(SRC + LIST, new Response(JSON.stringify(now), { headers: { 'Content-Type': 'application/json' } }));
   // いま端末にある画面の版（設定に出す。更新が届いたかを確かめるため）
-  if (todo.length || !(await cache.match(SRC + VERSION))) {
+  const changed = todo.length;
+  const version = await cache.match(SRC + VERSION);
+  if (changed || !version || (resetRef && (await version.json()).ref !== ref)) {
     const v = { ref, tree: String(tree.sha || '').slice(0, 7), at: new Date().toISOString() };
     await cache.put(SRC + VERSION, new Response(JSON.stringify(v), { headers: { 'Content-Type': 'application/json' } }));
   }
-  return todo.length;
+  return { changed, resetRef };
 }
